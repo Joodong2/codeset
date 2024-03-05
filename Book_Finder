@@ -1,0 +1,189 @@
+import os
+import io
+import numpy as np
+from PIL import Image
+import cv2
+from google.cloud import vision
+
+# Google Cloud Vision API에 액세스하기 위한 클라이언트 인터페이스를 생성합니다.
+os.environ['GOOGLE_APPLICATION_CREDENTIALS'] = 'service-account-file.json'
+client_options = {'api_endpoint': 'eu-vision.googleapis.com'}
+## 서비스 계정 키 파일 경로 지정
+key_file_path = "test/ocr-test-398706-8c4d6be17b16.json"
+client = vision.ImageAnnotatorClient.from_service_account_json(key_file_path)
+#client = vision.ImageAnnotatorClient(client_options=client_options)
+
+cap = cv2.VideoCapture(2)
+
+frame_width = int(cap.get(3))
+frame_height = int(cap.get(4))
+
+out = cv2.VideoWriter('output_video.mp4', cv2.VideoWriter_fourcc(*'mp4v'), 30, (frame_width, frame_height))
+temp = 1
+
+ret, frame = cap.read()
+cv2.imwrite('test/image/%d.jpg' %temp, frame)
+out.write(frame)
+
+# 이미지 로드
+image_path = "test/image/1.jpg"
+with io.open(image_path, 'rb') as image_file:
+    image_content = image_file.read()
+
+# 이미지를 Vision API가 처리할 수 있는 형식으로 변환
+image = vision.Image(content=image_content)
+
+# Vision API를 사용하여 텍스트 검출
+response = client.text_detection(image=image)
+texts = response.text_annotations
+
+# 이미지를 NumPy 배열로 로드
+img = cv2.imread(image_path)
+
+# 이미지의 가로 길이와 세로 길이 가져오기
+img_height, img_width, _ = img.shape
+
+# 이미지를 5개의 균등한 가로 영역으로 분할
+num_regions = 5
+region_width = img_width // num_regions
+
+# 검출된 텍스트를 저장할 빈 리스트 생성
+detected_texts = []
+
+# 영역별 이미지를 표시
+for i in range(num_regions):
+    start_x = i * region_width
+    end_x = start_x + region_width
+
+    # 영역에서 텍스트 검출
+    region_image = img[0:700, start_x:end_x]
+    cv2.imshow(f"Region {i + 1}", region_image)
+
+    # 영역에서 검출된 텍스트 출력
+    region_image_pil = Image.fromarray(region_image)
+    region_image_content = io.BytesIO()
+    region_image_pil.save(region_image_content, format="PNG")
+    region_image_bytes = region_image_content.getvalue()
+
+    region_image = vision.Image(content=region_image_bytes)
+
+    region_response = client.text_detection(image=region_image)
+    region_texts = region_response.text_annotations
+
+    # 첫 번째 검출된 텍스트를 리스트에 추가
+    if region_texts:
+        detected_texts.append(region_texts[0].description)
+
+import re
+
+# 줄 단위로 텍스트 분리
+lines = []
+for text in detected_texts:
+    lines.extend(text.split('\n'))
+
+# 유효한 문자 추출 (숫자와 한글만 추출하는 예시)
+valid_characters = re.compile('[0-9가-힣]+')
+filtered_lines = [re.findall(valid_characters, line) for line in lines if re.findall(valid_characters, line)]
+
+# 유효한 문자열을 저장할 리스트 초기화
+valid_strings = []
+
+# 각 줄에서 유효한 문자열을 추출한 결과를 리스트에 추가
+for line in filtered_lines:
+    valid_strings.append(' '.join(line))
+
+# 한글 4글자 이상인 문자열 추출
+korean_strings = [string for string in valid_strings if len(re.sub(r'[^\uac00-\ud7a3]+', '', string)) >= 4]
+
+titles=korean_strings
+
+print(valid_strings)
+print(titles)
+
+import serial
+import time
+from tkinter import *
+import tkinter.messagebox as msgbox
+import tkinter.font as font
+
+# 시리얼 포트 설정 (아두이노 IDE에서 확인 가능)
+arduino_port = 'COM5'
+ser = serial.Serial(arduino_port, 9600, timeout=1)
+
+def center(win):
+    win.update_idletasks()
+    width = win.winfo_width()
+    frm_width = win.winfo_rootx() - win.winfo_x()
+    win_width = width + 2 * frm_width
+    height = win.winfo_height()
+    titlebar_height = win.winfo_rooty() - win.winfo_y()
+    win_height = height + titlebar_height + frm_width
+    x = win.winfo_screenwidth() // 2 - win_width // 2
+    y = win.winfo_screenheight() // 2 - win_height // 2
+    win.geometry('{}x{}+{}+{}'.format(width, height, x, y))
+    win.deiconify()
+
+def Exit(root):
+    root.destroy()
+    root.quit()
+    exit()
+
+def Finder(root, titles):
+    findis = entry.get()
+    for i, title in enumerate(titles):
+        if title.get() == findis:
+            titles[i].set('')
+            # 아두이노로 데이터 전송
+            command = chr(ord('a') + i)
+            ser.write(command.encode())
+            msgbox.showinfo('Finding Notice', f'\'{findis}\'의 잠금이 해제되었습니다.\n이용해주셔서 감사합니다. ^0^')
+            time.sleep(5)
+            # 다시 닫히도록 아두이노로 데이터 전송
+            ser.write(b'x')
+            break
+    else:
+        msgbox.showerror('Finding Error', '일치하는 책이 없습니다.')
+
+# 초기 Tk 객체 생성
+root = Tk(className='Used-Book Finder')
+root.geometry('300x270+100+100')
+
+if __name__ == '__main__':
+    myFont = font.Font(family='Helvetica', size=13)
+    titles_vars = [StringVar() for _ in range(5)]
+
+    titles_vars[0].set(titles[0])
+    titles_vars[1].set(titles[1])
+    titles_vars[2].set(titles[2])
+    titles_vars[3].set(titles[3])
+    titles_vars[4].set(titles[4])
+
+    label = Label(root, text='What do you want? : ', font=('Arial', 13), relief='ridge')    
+    label_t1 = Label(root, textvariable=titles_vars[0])
+    label_t2 = Label(root, textvariable=titles_vars[1])
+    label_t3 = Label(root, textvariable=titles_vars[2])
+    label_t4 = Label(root, textvariable=titles_vars[3])
+    label_t5 = Label(root, textvariable=titles_vars[4])
+    label_t1.pack(side='top')
+    label_t2.pack(side='top')
+    label_t3.pack(side='top')
+    label_t4.pack(side='top')
+    label_t5.pack(side='top')
+
+    blank1 = Label(root, width=50, height=1)
+    blank1.pack()
+
+    root.attributes('-alpha', 1.0)
+
+    entry = Entry(root)
+    entry.pack()
+
+    btn1 = Button(root, text='Find', bg='black', fg='white', command=lambda: Finder(root, titles_vars))
+    btn1['font'] = myFont
+    btn1.pack()
+
+    blank2 = Label(root, width=50, height=1)
+    blank2.pack()
+
+    center(root)
+    root.mainloop()
