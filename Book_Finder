@@ -106,7 +106,7 @@ from tkinter import *
 import tkinter.messagebox as msgbox
 import tkinter.font as font
 
-# 시리얼 포트 설정 (아두이노 IDE에서 확인 가능)
+# # 시리얼 포트 설정 (아두이노 IDE에서 확인 가능)
 arduino_port = 'COM5'
 ser = serial.Serial(arduino_port, 9600, timeout=1)
 
